@@ -12,7 +12,7 @@ object). This led to inconsistencies in collision checks and line detection.
 - Empty cell: `!board[x][y]`
 - Filled cell: `board[x][y]`
 ### Bug in move generation
-Originally, `getPossibleMoves` limited horizontal positions using `nx - piece.type.size`.  
+Originally, `getPossibleMoves` limited horizontal positions using `nx`.  
 Since `size` is the 4X4 box, not the actual occupied width for a specific rotation, some valid edge placements
 were never considered (especially for vertical I and rotated pieces).  
 This made the agent do not consider to put blocks to the right side of the board.
