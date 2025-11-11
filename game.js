@@ -21,6 +21,12 @@
         }
     }
 
+    let AUTO_MODE = false;
+    let AUTO_AGENT = 'beam';   // 'beam' or 'heuristic'
+    let AUTO_TARGET = 20;      // how many games to run
+    let autoGames = 0;
+    let autoTotalScore = 0;
+
     // Initialize the Tetris court
     function initializeBoard(nx, ny) {
         let board = [];
@@ -37,17 +43,18 @@
     // game constants
     //-------------------------------------------------------------------------
 
-    var KEY     = { ESC: 27, SPACE: 32, LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40 },
-    DIR     = { UP: 0, RIGHT: 1, DOWN: 2, LEFT: 3, MIN: 0, MAX: 3, AI: -1},
-    stats   = new Stats(),
-    canvas  = get('canvas'),
-    ctx     = canvas.getContext('2d'),
-    ucanvas = get('upcoming'),
-    uctx    = ucanvas.getContext('2d'),
-    speed   = { start: 0.6, decrement: 0.005, min: 0.1 }, // how long before piece drops by 1 row (seconds)
-    nx      = 10, // width of tetris court (in blocks)
-    ny      = 20, // height of tetris court (in blocks)
-    nu      = 5;  // width/height of upcoming preview (in blocks)
+    const KEY = {ESC: 27, SPACE: 32, LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, B: 66},
+        DIR = {UP: 0, RIGHT: 1, DOWN: 2, LEFT: 3, MIN: 0, MAX: 3, AI: -1, BEAM: -2},
+
+        stats = new Stats(),
+        canvas = get('canvas'),
+        ctx = canvas.getContext('2d'),
+        ucanvas = get('upcoming'),
+        uctx = ucanvas.getContext('2d'),
+        speed = {start: 0.6, decrement: 0.005, min: 0.1}, // how long before piece drops by 1 row (seconds)
+        nx = 10, // width of tetris court (in blocks)
+        ny = 20, // height of tetris court (in blocks)
+        nu = 5;  // width/height of upcoming preview (in blocks)
 
     //-------------------------------------------------------------------------
     // game variables (initialized during reset)
@@ -190,6 +197,7 @@
                 case KEY.DOWN:   actions.push(DIR.DOWN);  handled = true; break;
                 case KEY.ESC:    lose();                  handled = true; break;
                 case KEY.SPACE:  actions.push(DIR.AI);    handled = true; break;
+                case KEY.B:      actions.push(DIR.BEAM);  handled = true; break;
             }
         }
         else if (ev.keyCode == KEY.SPACE) {
@@ -203,9 +211,31 @@
     //-------------------------------------------------------------------------
     // GAME LOGIC
     //-------------------------------------------------------------------------
-
+    let gamesPlayed = 0;
+    let totalScore = 0;
     function play() { hide('start'); reset();          playing = true;  }
-    function lose() { show('start'); setVisualScore(); playing = false; }
+    function lose() {
+    setVisualScore();
+    playing = false;
+
+    if (AUTO_MODE) {
+        autoGames += 1;
+        autoTotalScore += score;
+        const mean = autoTotalScore / autoGames;
+        console.log(`Game ${autoGames} score=${score} mean=${mean}`);
+
+        if (autoGames < AUTO_TARGET) {
+            reset();
+            playing = true;  // start next game automatically
+            return;
+        } else {
+            AUTO_MODE = false;
+            console.log(`DONE: ${autoGames} games, final mean=${mean}`);
+        }
+    } else {
+        show('start'); // normal manual mode
+    }
+}
 
     function setVisualScore(n)      { vscore = n || score; invalidateScore(); }
     function setScore(n)            { score = n; setVisualScore(n);  }
@@ -231,14 +261,36 @@
         setNextPiece();
     }
 
+    function playAuto(n, agent = 'beam') {
+        AUTO_MODE = true;
+        AUTO_AGENT = agent;
+        AUTO_TARGET = n;
+        autoGames = 0;
+        autoTotalScore = 0;
+        hide('start');
+        reset();
+        playing = true;
+    }
+
     function update(idt) {
-        if (playing) {
-            if (vscore < score)
-                setVisualScore(vscore + 1);
+        if (!playing) return;
+
+        if (vscore < score)
+            setVisualScore(vscore + 1);
+
+        if (AUTO_MODE) {
+            // ignore keyboard, let chosen agent instantly place pieces
+            if (AUTO_AGENT === 'beam') {
+                beamAgent();
+            } else {
+                heuristicAgent();
+            }
+        } else {
+            // normal human-controlled mode
             handle(actions.shift());
-            dt = dt + idt;
+            dt += idt;
             if (dt > step) {
-                dt = dt - step;
+                dt -= step;
                 drop();
             }
         }
@@ -250,7 +302,8 @@
             case DIR.RIGHT: move(DIR.RIGHT); break;
             case DIR.UP:    rotate();        break;
             case DIR.DOWN:  drop();          break;
-            case DIR.AI:    agent();         break;
+            case DIR.AI:    heuristicAgent();    break;
+            case DIR.BEAM:  beamAgent();         break;
         }
     }
 
@@ -302,7 +355,7 @@
 
     function removeLines() {
         var x, y, complete, n = 0;
-        for(y = ny ; y > 0 ; --y) {
+        for(y = ny-1 ; y >= 0 ; --y) {
             complete = true;
             for(x = 0 ; x < nx ; ++x) {
                 if (!getBlock(x, y)) {
@@ -324,7 +377,7 @@
 
     function removeLine(n) {
         var x, y;
-        for(y = n ; y >= 0 ; --y) {
+        for(y = n ; y >= 0 ; --y) {1
             for(x = 0 ; x < nx ; ++x)
                 setBlock(x, y, (y == 0) ? null : getBlock(x, y-1));
         }
@@ -409,13 +462,23 @@
         ctx.strokeRect(x*dx, y*dy, dx, dy)
     }
 
-    function agent() {
-        let bestMove = selectBestMove(current);
-        if (bestMove) {
-            let dropY = getDropPosition(bestMove.piece, bestMove.x);
-            current.x = bestMove.x;
-            current.y = dropY;
-            current.dir = bestMove.piece.dir;
-            drop();
+    function heuristicAgent() {
+        const bestMove = selectBestMove(current);
+        if (!bestMove) return;
+
+        current.dir = bestMove.dir;
+        current.x   = bestMove.x;
+        current.y   = getDropPosition(current, bestMove.x);
+        drop();
         }
-    }
+
+        function beamAgent() {
+        const nextType = next && next.type;
+        const best = beamSearchMove(current, nextType, 5, 2); // beamWidth=5, depth=2 as example
+        if (!best) return;
+        current.dir = best.dir;
+        current.x   = best.x;
+        current.y   = getDropPosition(current, best.x);
+        drop();
+        }
+

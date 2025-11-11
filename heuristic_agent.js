@@ -7,9 +7,10 @@ function evaluateBoard(board) {
     let columnHeights = new Array(nx).fill(0);
 
     // Calculate aggregate height and column heights
-    for (let y = 0; y < ny; y++) {
-        for (let x = 0; x < nx; x++) {
-            if (board[x][y] !== 0) {
+    //change to the incorrect loop order
+    for (let x = 0; x < nx; x++) {
+        for (let y = 0; y < ny; y++) {
+            if (board[x][y]) {
                 columnHeights[x] = ny - y;
                 aggregateHeight += columnHeights[x];
                 break;
@@ -21,7 +22,7 @@ function evaluateBoard(board) {
     for (let y = 0; y < ny; y++) {
         var complete = true;
         for (let x = 0; x < nx; x++) {
-            if (board[x][y] === 0) {
+            if (!board[x][y]) {
                 complete = false;
                 break;
             }
@@ -34,21 +35,45 @@ function evaluateBoard(board) {
     for (let x = 0; x < nx; x++) {
         let blockFound = false;
         for (let y = 0; y < ny; y++) {
-            if (board[x][y] !== 0) {
+            //switched to maintain consistency in finding empty and filled spaces
+            if (board[x][y]) {
                 blockFound = true;
-            } else if (blockFound && board[x][y] === 0) {
+            } else if (blockFound && !board[x][y]) {
                 holes++;
             }
         }
     }
+    //added to discourage appearance of tall columns
+    let maxHeight = 0;
+    for (let x = 0; x < nx; x++) {
+        if (columnHeights[x] > maxHeight) maxHeight = columnHeights[x];
+    }
 
+    //calculate wells
+    const wells = countWells(board);
     // Calculate bumpiness
     for (let x = 0; x < nx - 1; x++) {
         bumpiness += Math.abs(columnHeights[x] - columnHeights[x + 1]);
     }
-
     // Combine features into a heuristic score
-    return -0.51 * aggregateHeight + 0.76 * completeLines - 0.36 * holes - 0.18 * bumpiness;
+    return -0.51 * (aggregateHeight) + 0.76 * completeLines - 0.36 * holes - 0.18 * bumpiness - 0.6  * wells
+        - 0.3 * maxHeight;
+}
+//this adds wells that prevent leaving empty space and towering
+function countWells(board) {
+    let wells = 0;
+    for (let x = 0; x < nx; x++) {
+        for (let y = 0; y < ny; y++) {
+            if (!board[x][y]) {
+                const leftFilled  = (x === 0)      || !!board[x - 1][y];
+                const rightFilled = (x === nx - 1) || !!board[x + 1][y];
+                if (leftFilled && rightFilled) {
+                    wells++;
+                }
+            }
+        }
+    }
+    return wells;
 }
 
 // Function to deep copy the blocks array
@@ -63,33 +88,43 @@ function copyBlocks(blocks) {
     return new_blocks;
 }
 
-// Generate all possible moves for the current piece
+//generate all possible moves for the  piece
 function getPossibleMoves(piece) {
     let moves = [];
+    //saving initial state of piece.dir
+    let old = piece.dir;
     // For each rotation of the piece
     for (let dir = 0; dir < 4; dir++) {
         piece.dir = dir;
         // For each horizontal position
-        for (let x = 0; x < nx - piece.type.size; x++) {
+        //the bug was that the loop condition was wrongly set by 1 iteration
+        //making the agent partially blind
+        for (let x = -3; x <= nx; x++) {
             let y = getDropPosition(piece, x);
+            if (occupied(piece.type, x, y, piece.dir)) {
+                continue; // skip impossible placements
+            }
             let new_blocks = copyBlocks(blocks);
             eachblock(piece.type, x, y, piece.dir, function(x, y) {
                 new_blocks[x][y] = piece.type;
             });
-            moves.push({piece: piece, x: x, y: y, board: new_blocks});
+            moves.push({ dir: dir, x, y, board: new_blocks });
         }
     }
+    //returning initial state
+    piece.dir = old
     return moves;
 }
 
+
 // Select the best move based on heuristic evaluation
-function selectBestMove(piece, board) {
-    let moves = getPossibleMoves(piece);
+function selectBestMove(piece) {
+    const moves = getPossibleMoves(piece);
     let bestMove = null;
     let bestScore = -Infinity;
     moves.forEach(move => {
-        let score = evaluateBoard(move.board);
-        if (score > bestScore) {
+        const score = evaluateBoard(move.board);
+        if (score > bestScore ) {
             bestScore = score;
             bestMove = move;
         }
