@@ -65,8 +65,7 @@ You can see the heuristic agents performance through this table after finding so
 | 9    | 7240  | 3947 |
 | 10   | 8960  | 4449 |
 
-After finding the rest of the bugs (The improved handling of 4x4 tetroid ). You can see the table after finding all of\
-the bugs here: 
+And here is the table after the rest of the bugs I foundc were eliminated (The improved handling of 4x4 tetroid ).
 
 | Game | Score | Mean  |
 |------|-------|-------|
